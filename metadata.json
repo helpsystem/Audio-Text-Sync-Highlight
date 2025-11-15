@@ -1,0 +1,5 @@
+{
+  "name": "Audio-Text Sync & Highlight",
+  "description": "Upload an audio file to get a transcription from Gemini. Play the audio and see the corresponding words highlighted in real-time, creating a synchronized experience.",
+  "requestFramePermissions": []
+}
