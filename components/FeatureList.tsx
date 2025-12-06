@@ -20,6 +20,12 @@ export const FeatureList: React.FC = () => {
                     </p>
                 </div>
                 <div className="p-4 rounded-md bg-gray-900/50">
+                    <h3 className="font-semibold text-teal-400">Bilingual Audio Generation & Side-by-Side View</h3>
+                    <p className="text-sm mt-1">
+                        Translate your transcript into Persian with one click and view them side-by-side. Then, generate high-quality, natural-sounding audio for both the original English and the Persian translation using advanced Text-to-Speech technology.
+                    </p>
+                </div>
+                <div className="p-4 rounded-md bg-gray-900/50">
                     <h3 className="font-semibold text-teal-400">Music Chord Detection</h3>
                     <p className="text-sm mt-1">
                         If your audio file contains music, its chords are automatically detected and displayed in a separate section.
