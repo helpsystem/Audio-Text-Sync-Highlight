@@ -11,7 +11,7 @@ function App() {
             Audio-Text Sync & Highlight
           </h1>
           <p className="mt-2 text-lg text-gray-400">
-            Upload your audio, and watch Gemini bring it to life with a synchronized transcript.
+            Upload your audio or provide a YouTube link, and watch Gemini bring it to life with a synchronized transcript.
           </p>
         </header>
         <main className="bg-gray-800/50 backdrop-blur-sm rounded-2xl shadow-2xl overflow-hidden ring-1 ring-white/10">
