@@ -44,7 +44,17 @@ export const FeatureList: React.FC = () => {
                         <h3 className="font-bold text-lg">حالت تخصصی پرستشی و آکورد</h3>
                     </div>
                     <p className="text-sm leading-relaxed text-gray-400">
-                        در حالت "Worship Song"، هوش مصنوعی ساختار شعر را تشخیص داده و متن را بصورت بندهای منظم (Stanza) مرتب می‌کند. همچنین قابلیت تشخیص آکوردهای موسیقی از روی فایل صوتی و نمایش آن‌ها برای نوازندگان فراهم شده است.
+                        در حالت "سرود پرستشی" (Worship Song)، هوش مصنوعی ساختار شعر را تشخیص داده و متن را بصورت بندهای منظم (Stanza) مرتب می‌کند. همچنین قابلیت تشخیص آکوردهای موسیقی از روی فایل صوتی و نمایش آن‌ها برای نوازندگان فراهم شده است.
+                    </p>
+                </div>
+
+                <div className="p-6 rounded-xl bg-gray-800/60 border border-gray-700 hover:border-red-500/50 transition-all shadow-lg">
+                    <div className="flex items-center gap-3 mb-3 text-red-400">
+                        <Icon name="touch" className="w-6 h-6" />
+                        <h3 className="font-bold text-lg">ویرایش متن و هماهنگی دستی</h3>
+                    </div>
+                    <p className="text-sm leading-relaxed text-gray-400">
+                        اگر هوش مصنوعی خطایی داشت، نگران نباشید! با قابلیت «ویرایش متن» می‌توانید کلمات را اصلاح کنید. همچنین با حالت «هماهنگی لمسی»، می‌توانید هنگام پخش موزیک روی کلمات کلیک کنید تا زمان‌بندی آن‌ها دقیقا با لحظه کلیک شما تنظیم شود.
                     </p>
                 </div>
 
@@ -55,15 +65,6 @@ export const FeatureList: React.FC = () => {
                     </div>
                     <p className="text-sm leading-relaxed text-gray-400">
                         متن‌های ترجمه شده را با صدای طبیعی و انسانی بشنوید. برای متون فارسی از مدل‌های پیشرفته جهت خوانش با لهجه استاندارد ایرانی و برای انگلیسی از صداهای نیتیو استفاده می‌شود.
-                    </p>
-                </div>
-                 <div className="p-6 rounded-xl bg-gray-800/60 border border-gray-700 hover:border-pink-500/50 transition-all shadow-lg">
-                    <div className="flex items-center gap-3 mb-3 text-pink-400">
-                        <Icon name="palette" className="w-6 h-6" />
-                        <h3 className="font-bold text-lg">شخصی‌سازی ظاهری</h3>
-                    </div>
-                    <p className="text-sm leading-relaxed text-gray-400">
-                        رنگ‌های هایلایت کلمات و پس‌زمینه خطوط فعال را به دلخواه خود تغییر دهید. سیستم اسکرول هوشمند تضمین می‌کند که خط در حال خوانش همیشه در مرکز دید شما باقی بماند.
                     </p>
                 </div>
             </div>
