@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { GoogleGenAI, Type, Modality } from '@google/genai';
+import JSZip from 'jszip';
 import { Icon } from './Icon.tsx';
 
 type WordSegment = {
@@ -39,6 +40,8 @@ const STATUS_MESSAGES: Record<Status, string> = {
 export const Conversation: React.FC = () => {
     const [status, setStatus] = useState<Status>('idle');
     const [mode, setMode] = useState<Mode>('speech');
+    const [enabledFeatures, setEnabledFeatures] = useState<string[]>(['chords', 'translate_fa']);
+    const [audioUrlInput, setAudioUrlInput] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [file, setFile] = useState<File | null>(null);
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -77,6 +80,13 @@ export const Conversation: React.FC = () => {
     const [showAppearance, setShowAppearance] = useState(false);
     const [wordHighlightColor, setWordHighlightColor] = useState('#2dd4bf'); // teal-400
     const [lineHighlightColor, setLineHighlightColor] = useState('#1e293b'); // gray-800
+
+    // Export Selection
+    const [selectedExportFiles, setSelectedExportFiles] = useState<string[]>([
+        'transcript', 'chords', 'master_json', 'powerpoint', 'persian', 'english', 'finglish', 'timing',
+        'srt_original', 'srt_english', 'srt_finglish', 'srt_persian'
+    ]);
+    const [showExportOptions, setShowExportOptions] = useState(false);
 
     const audioRef = useRef<HTMLAudioElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -152,7 +162,7 @@ CRITICAL: Provide highly accurate timestamps for every single word, down to the 
             }
 
             const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
+                model: 'gemini-3-flash-preview',
                 contents: [{
                     parts: [
                         audioPart,
@@ -236,7 +246,7 @@ CRITICAL: Provide highly accurate timestamps for every single word, down to the 
             const audioPart = await fileToGenerativePart(audioFile);
 
             const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
+                model: 'gemini-3-flash-preview',
                 contents: [{
                     parts: [
                         audioPart,
@@ -254,6 +264,77 @@ CRITICAL: Provide highly accurate timestamps for every single word, down to the 
         }
     };
 
+    const handleTranslate = async (target: TranslationTarget, dataOverride?: TranscriptData) => {
+        const data = dataOverride || transcriptData;
+        if (!data) return;
+        setIsTranslating(true);
+        setError(null);
+        setActiveTab(target); 
+
+        try {
+            if (!process.env.API_KEY) throw new Error("API_KEY not found.");
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+            
+            let systemInstruction = "";
+            let userPrompt = "";
+            const linesContent = data.lines.map(l => l.content);
+
+            if (target === 'persian') {
+                systemInstruction = "You are a professional translator. Translate each line of the provided array to fluent, formal Iranian Persian (Farsi). Maintain the exact number of lines and the order.";
+                userPrompt = `Translate these lines:\n${JSON.stringify(linesContent)}`;
+            } else if (target === 'english') {
+                systemInstruction = "You are a professional translator. Translate each line of the provided array to fluent English. Maintain the exact number of lines and the order.";
+                userPrompt = `Translate these lines:\n${JSON.stringify(linesContent)}`;
+            } else if (target === 'finglish') {
+                 systemInstruction = "You are a transliteration expert. Convert each line of the provided array to Finglish (Persian language using English alphabet). If input is English, translate to Persian first, then transliterate. Maintain the exact number of lines and the order.";
+                 userPrompt = `Convert these lines:\n${JSON.stringify(linesContent)}`;
+            }
+
+            const response = await ai.models.generateContent({ 
+                model: 'gemini-3-flash-preview', 
+                config: { 
+                    systemInstruction,
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: Type.OBJECT,
+                        properties: {
+                            translated_lines: {
+                                type: Type.ARRAY,
+                                items: { type: Type.STRING }
+                            }
+                        }
+                    }
+                },
+                contents: [{ parts: [{ text: userPrompt }] }], 
+            });
+            
+            const result = JSON.parse(response.text || "{}");
+            if (result.translated_lines && Array.isArray(result.translated_lines)) {
+                 setTranslations(prev => ({ ...prev, [target]: result.translated_lines }));
+            } else {
+                throw new Error("Invalid response format from translation.");
+            }
+        } catch (err) {
+            console.error("Translation error:", err);
+            setError(`Translation failed.`);
+        } finally {
+            setIsTranslating(false);
+        }
+    };
+
+    const FEATURES = [
+        { id: 'chords', label: 'تشخیص آکورد (مخصوص سرود)', icon: 'music' },
+        { id: 'translate_fa', label: 'ترجمه به فارسی', icon: 'language' },
+        { id: 'translate_en', label: 'ترجمه به انگلیسی', icon: 'language' },
+        { id: 'translate_finglish', label: 'تبدیل به فینگلیش', icon: 'language' },
+    ] as const;
+
+    const toggleFeature = (id: string) => {
+        setEnabledFeatures(prev => 
+            prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]
+        );
+    };
+
     const handleFile = useCallback(async (selectedFile: File) => {
         if (!selectedFile.type.startsWith('audio/')) {
             setError("Invalid file type. Please upload an audio file.");
@@ -268,12 +349,42 @@ CRITICAL: Provide highly accurate timestamps for every single word, down to the 
         const transcription = await transcribeAudio(selectedFile, mode);
         
         if (transcription) {
-            if (mode === 'song') {
+            if (enabledFeatures.includes('chords') && mode === 'song') {
                 await detectChords(selectedFile, transcription.fullTranscript);
+            }
+            if (enabledFeatures.includes('translate_fa')) {
+                await handleTranslate('persian', transcription);
+            }
+            if (enabledFeatures.includes('translate_en')) {
+                await handleTranslate('english', transcription);
+            }
+            if (enabledFeatures.includes('translate_finglish')) {
+                await handleTranslate('finglish', transcription);
             }
             setStatus('done');
         }
-    }, [mode, resetState]);
+    }, [mode, enabledFeatures, resetState]);
+
+    const handleFetchAudioUrl = async () => {
+        if (!audioUrlInput.trim()) return;
+        setError(null);
+        setStatus('reading');
+        
+        try {
+            const response = await fetch(audioUrlInput);
+            if (!response.ok) throw new Error("Failed to fetch audio from URL.");
+            
+            const blob = await response.blob();
+            const fileName = audioUrlInput.split('/').pop() || 'remote_audio.mp3';
+            const fetchedFile = new File([blob], fileName, { type: blob.type || 'audio/mpeg' });
+            
+            handleFile(fetchedFile);
+        } catch (err) {
+            console.error("URL Fetch Error:", err);
+            setError("خطا در دریافت فایل از لینک. لطفا از صحت لینک و دسترسی CORS اطمینان حاصل کنید.");
+            setStatus('error');
+        }
+    };
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -406,6 +517,255 @@ CRITICAL: Provide highly accurate timestamps for every single word, down to the 
 
     // -------------------------
 
+    const handleExportAllInOne = async () => {
+        if (!transcriptData || !file) return;
+        setStatus('exporting');
+        setError(null);
+        
+        try {
+            const zip = new JSZip();
+            const folderName = file.name.split('.')[0];
+            const zipFolder = zip.folder(folderName);
+            
+            if (!zipFolder) throw new Error("Failed to create ZIP folder");
+
+            const formatSRTTime = (seconds: number) => {
+                const hh = Math.floor(seconds / 3600).toString().padStart(2, '0');
+                const mm = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
+                const ss = Math.floor(seconds % 60).toString().padStart(2, '0');
+                const ms = Math.floor((seconds % 1) * 1000).toString().padStart(3, '0');
+                return `${hh}:${mm}:${ss},${ms}`;
+            };
+
+            const generateSRT = (lines: string[], transcriptLines: any[]) => {
+                return lines.map((text, i) => {
+                    const line = transcriptLines[i];
+                    if (!line) return '';
+                    const start = line.words[0]?.start_time || 0;
+                    const end = line.words[line.words.length - 1]?.end_time || 0;
+                    return `${i + 1}\n${formatSRTTime(start)} --> ${formatSRTTime(end)}\n${text}\n`;
+                }).join('\n');
+            };
+
+            // 1. Transcript TXT
+            if (selectedExportFiles.includes('transcript')) {
+                zipFolder.file("transcript_original.txt", transcriptData.fullTranscript);
+            }
+
+            // 2. Chords TXT (if exists)
+            if (selectedExportFiles.includes('chords') && chords) {
+                zipFolder.file("chords.txt", chords);
+            }
+
+            // 3. Translations
+            if (selectedExportFiles.includes('persian') && translations.persian) {
+                zipFolder.file("translation_persian.txt", translations.persian.join('\n'));
+            }
+            if (selectedExportFiles.includes('english') && translations.english) {
+                zipFolder.file("translation_english.txt", translations.english.join('\n'));
+            }
+            if (selectedExportFiles.includes('finglish') && translations.finglish) {
+                zipFolder.file("translation_finglish.txt", translations.finglish.join('\n'));
+            }
+
+            // 4. Timing JSON
+            if (selectedExportFiles.includes('timing')) {
+                const timingData = transcriptData.lines.map((line, index) => ({
+                    content: line.content,
+                    translations: {
+                        persian: translations.persian?.[index] || null,
+                        english: translations.english?.[index] || null,
+                        finglish: translations.finglish?.[index] || null,
+                    },
+                    start: line.words[0]?.start_time || 0,
+                    end: line.words[line.words.length - 1]?.end_time || 0,
+                    words: line.words
+                }));
+                zipFolder.file("timing.json", JSON.stringify(timingData, null, 2));
+            }
+
+            // 7. SRT Files
+            if (selectedExportFiles.includes('srt_original')) {
+                const srt = generateSRT(transcriptData.lines.map(l => l.content), transcriptData.lines);
+                zipFolder.file("transcript_original.srt", srt);
+            }
+            if (selectedExportFiles.includes('srt_english') && translations.english) {
+                const srt = generateSRT(translations.english, transcriptData.lines);
+                zipFolder.file("translation_english.srt", srt);
+            }
+            if (selectedExportFiles.includes('srt_finglish') && translations.finglish) {
+                const srt = generateSRT(translations.finglish, transcriptData.lines);
+                zipFolder.file("translation_finglish.srt", srt);
+            }
+            if (selectedExportFiles.includes('srt_persian') && translations.persian) {
+                const srt = generateSRT(translations.persian, transcriptData.lines);
+                zipFolder.file("translation_persian.srt", srt);
+            }
+
+            // 5. Master Project JSON
+            if (selectedExportFiles.includes('master_json')) {
+                const masterData = {
+                    metadata: {
+                        fileName: file.name,
+                        mode: mode,
+                        timestamp: new Date().toISOString(),
+                    },
+                    original: transcriptData,
+                    translations: translations,
+                    chords: chords
+                };
+                zipFolder.file("project_master.json", JSON.stringify(masterData, null, 2));
+            }
+
+            // 6. PowerPoint (PPSX)
+            if (selectedExportFiles.includes('powerpoint')) {
+                const PptxGenJS = (await import('pptxgenjs')).default;
+                if (!process.env.API_KEY) throw new Error("API_KEY not found.");
+                const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+                const pres = new PptxGenJS();
+                
+                pres.layout = 'LAYOUT_16x9';
+                const isRtl = /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC]/.test(transcriptData.fullTranscript);
+                // @ts-ignore
+                pres.rtl = isRtl;
+
+                let chunks: { text: string; start: number; end: number; label?: string }[] = [];
+                const lines = transcriptData.lines;
+
+                if (mode === 'song') {
+                    for (let i = 0; i < lines.length; i += 4) {
+                        const slice = lines.slice(i, i + 4);
+                        const text = slice.map(l => l.content).join('\n');
+                        const start = slice[0]?.words[0]?.start_time || 0;
+                        const lastLine = slice[slice.length-1];
+                        const end = lastLine?.words[lastLine.words.length-1]?.end_time || 0;
+                        chunks.push({ text, start, end });
+                    }
+                } else {
+                    let currentChunkLines: string[] = [];
+                    let chunkStart = 0;
+                    
+                    for (let i = 0; i < lines.length; i++) {
+                        const line = lines[i];
+                        const lineStart = line.words[0]?.start_time || 0;
+                        const lineEnd = line.words[line.words.length-1]?.end_time || 0;
+
+                        if (line.type === 'book_title' || line.type === 'chapter_title') {
+                            if (currentChunkLines.length > 0) {
+                                 chunks.push({ text: currentChunkLines.join(' '), start: chunkStart, end: lines[i-1].words.at(-1)?.end_time || 0 });
+                                 currentChunkLines = [];
+                            }
+                            chunks.push({ text: line.content, start: lineStart, end: lineEnd });
+                            chunkStart = 0;
+                        } else {
+                            if (currentChunkLines.length === 0) chunkStart = lineStart;
+                            const labelPrefix = line.label ? `[${line.label}] ` : '';
+                            currentChunkLines.push(labelPrefix + line.content);
+
+                            if (currentChunkLines.length >= 3 || i === lines.length - 1) {
+                                chunks.push({ text: currentChunkLines.join(' '), start: chunkStart, end: lineEnd });
+                                currentChunkLines = [];
+                            }
+                        }
+                    }
+                }
+
+                setTotalSlides(chunks.length);
+                let firstSlideReference: any = null;
+
+                for (const [index, chunk] of chunks.entries()) {
+                    const slide = pres.addSlide();
+                    if (index === 0) firstSlideReference = slide;
+                    // @ts-ignore
+                    slide.transition = { type: 'cube', duration: 800 };
+
+                    const imagePrompt = mode === 'song' 
+                        ? `Abstract, spiritual, or worship background image suitable for these song lyrics: "${chunk.text}". No text in image. High quality, 4k, soft lighting.`
+                        : `Create a descriptive illustration for this text: "${chunk.text}". No text in image. Cinematic lighting, professional photography style.`;
+
+                    try {
+                        const imageResponse = await ai.models.generateContent({
+                            model: 'gemini-2.5-flash-image',
+                            contents: { parts: [{ text: imagePrompt }] },
+                            config: { imageConfig: { aspectRatio: "16:9", imageSize: "1K" } }
+                        });
+                        
+                        let b64Image = "";
+                        for (const part of imageResponse.candidates?.[0]?.content?.parts || []) {
+                            if (part.inlineData) {
+                                b64Image = part.inlineData.data;
+                                break;
+                            }
+                        }
+
+                        if (b64Image) {
+                            slide.addImage({ data: `data:image/jpeg;base64,${b64Image}`, w: '100%', h: '100%' });
+                        }
+                    } catch (imgErr) {
+                        slide.background = { color: '111827' };
+                    }
+
+                    slide.addShape("roundRect", { 
+                        x: '10%', y: '15%', w: '80%', h: '70%', 
+                        fill: { color: '000000', transparency: 40 },
+                        rectRadius: 0.5,
+                        line: { color: 'FFFFFF', width: 1, transparency: 60 },
+                        shadow: { type: 'outer', color: '000000', blur: 10, offset: 5, angle: 90 }
+                    });
+                    
+                    const fontSize = mode === 'song' ? 32 : 24;
+                    slide.addText(chunk.text, { 
+                        x: '10%', y: '15%', w: '80%', h: '70%', 
+                        align: 'center', valign: 'middle', 
+                        color: 'FFFFFF', fontSize: fontSize, bold: true, 
+                        fontFace: isRtl ? 'Vazirmatn' : 'Segoe UI',
+                        rtlMode: isRtl
+                    });
+
+                    slide.addText("کلیسای ایرانیان واشنگتن دی سی", {
+                        x: 0, y: '92%', w: '100%', h: 0.5,
+                        align: 'center', fontSize: 12, color: 'E5E7EB',
+                        fontFace: 'Vazirmatn',
+                        bold: true,
+                        shadow: { type: 'outer', color: '000000', blur: 2, offset: 1, angle: 45 }
+                    });
+                    
+                    setExportProgress(index + 1);
+                }
+
+                if (chunks.length > 0 && firstSlideReference) {
+                      const audioPart = await fileToGenerativePart(file);
+                      firstSlideReference.addMedia({ type: 'audio', data: `data:${file.type};base64,${audioPart.inlineData.data}`, x: 0.5, y: 0.5, w:1, h:1 });
+                      firstSlideReference.addText( 'POWERED BY GEMINI', { x: 0, y: '95%', w: '100%', h: 0.25, align: 'center', fontSize: 10, color: 'AAAAAA' } );
+                }
+                
+                // @ts-ignore
+                const pptxBlob = await pres.write('blob');
+                zipFolder.file(`${folderName}.ppsx`, pptxBlob);
+            }
+
+            // 7. Generate and Download ZIP
+            const zipBlob = await zip.generateAsync({ type: "blob" });
+            const url = URL.createObjectURL(zipBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${folderName}_all_files.zip`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            setStatus('done');
+        } catch (err) {
+            console.error("Export All Error:", err);
+            setError("Failed to export all files. Please try again.");
+            setStatus('error');
+        } finally {
+            setExportProgress(0);
+            setTotalSlides(0);
+        }
+    };
+
     const handleDownloadTranscript = () => {
         if (!transcriptData) return;
         const blob = new Blob([transcriptData.fullTranscript], { type: 'text/plain' });
@@ -514,6 +874,7 @@ CRITICAL: Provide highly accurate timestamps for every single word, down to the 
             
             pres.layout = 'LAYOUT_16x9';
             const isRtl = /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC]/.test(transcriptData.fullTranscript);
+            // @ts-ignore
             pres.rtl = isRtl;
 
             let chunks: { text: string; start: number; end: number; label?: string }[] = [];
@@ -571,9 +932,32 @@ CRITICAL: Provide highly accurate timestamps for every single word, down to the 
                     : `Create a descriptive illustration for this text: "${chunk.text}". No text in image. Cinematic lighting, professional photography style.`;
 
                 try {
-                    const imageResponse = await ai.models.generateImages({ model: 'imagen-4.0-generate-001', prompt: imagePrompt, config: { numberOfImages: 1, outputMimeType: 'image/jpeg' } });
-                    const b64Image = imageResponse.generatedImages[0].image.imageBytes;
-                    slide.addImage({ data: `data:image/jpeg;base64,${b64Image}`, w: '100%', h: '100%' });
+                    const imageResponse = await ai.models.generateContent({
+                        model: 'gemini-2.5-flash-image',
+                        contents: {
+                            parts: [{ text: imagePrompt }]
+                        },
+                        config: {
+                            imageConfig: {
+                                aspectRatio: "16:9",
+                                imageSize: "1K"
+                            }
+                        }
+                    });
+                    
+                    let b64Image = "";
+                    for (const part of imageResponse.candidates?.[0]?.content?.parts || []) {
+                        if (part.inlineData) {
+                            b64Image = part.inlineData.data;
+                            break;
+                        }
+                    }
+
+                    if (b64Image) {
+                        slide.addImage({ data: `data:image/jpeg;base64,${b64Image}`, w: '100%', h: '100%' });
+                    } else {
+                        throw new Error("No image data in response");
+                    }
                 } catch (imgErr) {
                     console.warn("Image gen failed for slide", index, imgErr);
                     slide.background = { color: '111827' };
@@ -624,63 +1008,6 @@ CRITICAL: Provide highly accurate timestamps for every single word, down to the 
         } finally {
            setExportProgress(0);
            setTotalSlides(0);
-        }
-    };
-
-    const handleTranslate = async (target: TranslationTarget) => {
-        if (!transcriptData) return;
-        setIsTranslating(true);
-        setError(null);
-        setActiveTab(target); 
-
-        try {
-            if (!process.env.API_KEY) throw new Error("API_KEY not found.");
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
-            
-            let systemInstruction = "";
-            let userPrompt = "";
-            const linesContent = transcriptData.lines.map(l => l.content);
-
-            if (target === 'persian') {
-                systemInstruction = "You are a professional translator. Translate each line of the provided array to fluent, formal Iranian Persian (Farsi). Maintain the exact number of lines and the order.";
-                userPrompt = `Translate these lines:\n${JSON.stringify(linesContent)}`;
-            } else if (target === 'english') {
-                systemInstruction = "You are a professional translator. Translate each line of the provided array to fluent English. Maintain the exact number of lines and the order.";
-                userPrompt = `Translate these lines:\n${JSON.stringify(linesContent)}`;
-            } else if (target === 'finglish') {
-                 systemInstruction = "You are a transliteration expert. Convert each line of the provided array to Finglish (Persian language using English alphabet). If input is English, translate to Persian first, then transliterate. Maintain the exact number of lines and the order.";
-                 userPrompt = `Convert these lines:\n${JSON.stringify(linesContent)}`;
-            }
-
-            const response = await ai.models.generateContent({ 
-                model: 'gemini-2.5-flash', 
-                config: { 
-                    systemInstruction,
-                    responseMimeType: "application/json",
-                    responseSchema: {
-                        type: Type.OBJECT,
-                        properties: {
-                            translated_lines: {
-                                type: Type.ARRAY,
-                                items: { type: Type.STRING }
-                            }
-                        }
-                    }
-                },
-                contents: [{ parts: [{ text: userPrompt }] }], 
-            });
-            
-            const result = JSON.parse(response.text || "{}");
-            if (result.translated_lines && Array.isArray(result.translated_lines)) {
-                 setTranslations(prev => ({ ...prev, [target]: result.translated_lines }));
-            } else {
-                throw new Error("Invalid response format from translation.");
-            }
-        } catch (err) {
-            console.error("Translation error:", err);
-            setError(`Translation failed.`);
-        } finally {
-            setIsTranslating(false);
         }
     };
 
@@ -1036,6 +1363,76 @@ Text: "${textToSpeak}"
             return (
                 <div className="text-center">
                     {renderModeSelector()}
+                    
+                    {/* Extraction Options */}
+                    <div className="mb-8 max-w-2xl mx-auto bg-gray-900/30 p-6 rounded-2xl border border-gray-700/50 font-vazir" dir="rtl">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-bold text-teal-400 flex items-center gap-2">
+                                <Icon name="code" className="w-5 h-5" /> تنظیمات استخراج هوشمند
+                            </h3>
+                            <button 
+                                onClick={() => {
+                                    if (enabledFeatures.length === FEATURES.length) setEnabledFeatures([]);
+                                    else setEnabledFeatures(FEATURES.map(f => f.id));
+                                }}
+                                className="text-xs text-gray-400 hover:text-teal-400 transition-colors"
+                            >
+                                {enabledFeatures.length === FEATURES.length ? 'لغو انتخاب همه' : 'انتخاب همه قابلیت‌ها'}
+                            </button>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {FEATURES.map((feature) => (
+                                <label 
+                                    key={feature.id}
+                                    className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer group ${
+                                        enabledFeatures.includes(feature.id) 
+                                            ? 'bg-teal-500/10 border-teal-500/50 text-teal-100' 
+                                            : 'bg-gray-800/40 border-gray-700 text-gray-400 hover:border-gray-600'
+                                    }`}
+                                >
+                                    <input 
+                                        type="checkbox"
+                                        className="hidden"
+                                        checked={enabledFeatures.includes(feature.id)}
+                                        onChange={() => toggleFeature(feature.id)}
+                                    />
+                                    <div className={`p-2 rounded-lg transition-colors ${enabledFeatures.includes(feature.id) ? 'bg-teal-500 text-white' : 'bg-gray-700 text-gray-500 group-hover:bg-gray-600'}`}>
+                                        <Icon name={feature.icon as any} className="w-4 h-4" />
+                                    </div>
+                                    <span className="text-sm font-medium">{feature.label}</span>
+                                    {enabledFeatures.includes(feature.id) && (
+                                        <div className="mr-auto text-teal-400">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                            </svg>
+                                        </div>
+                                    )}
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* URL Input */}
+                    <div className="mb-6 max-w-2xl mx-auto font-vazir" dir="rtl">
+                        <div className="flex gap-2">
+                            <input 
+                                type="text"
+                                value={audioUrlInput}
+                                onChange={(e) => setAudioUrlInput(e.target.value)}
+                                placeholder="لینک مستقیم فایل صوتی را اینجا وارد کنید..."
+                                className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all"
+                            />
+                            <button 
+                                onClick={handleFetchAudioUrl}
+                                disabled={!audioUrlInput.trim()}
+                                className="bg-teal-600 hover:bg-teal-500 disabled:opacity-50 disabled:hover:bg-teal-600 text-white px-6 py-3 rounded-xl font-bold transition-all flex items-center gap-2"
+                            >
+                                <Icon name="audio-wave" className="w-5 h-5" /> دریافت
+                            </button>
+                        </div>
+                        <p className="mt-2 text-xs text-gray-500 text-right">نکته: لینک باید مستقیم و دارای دسترسی عمومی باشد.</p>
+                    </div>
+
                     <div 
                         className="relative border-2 border-dashed border-gray-600 rounded-lg p-12 cursor-pointer transition-colors hover:border-teal-500 bg-gray-800/50"
                         onDrop={handleDrop} onDragOver={handleDragOver} onDragEnter={handleDragEnter} onDragLeave={handleDragLeave}
@@ -1084,6 +1481,56 @@ Text: "${textToSpeak}"
                     <button onClick={handleExportToPowerPoint} className="bg-orange-600 hover:bg-orange-500 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center gap-2">
                       <Icon name="presentation" className="w-5 h-5" /> خروجی پاورپوینت
                     </button>
+                    
+                    <div className="relative">
+                        <button 
+                            onClick={() => setShowExportOptions(!showExportOptions)} 
+                            className="bg-indigo-700 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center gap-2"
+                        >
+                            <Icon name="download" className="w-5 h-5" /> استخراج همه (ZIP)
+                        </button>
+                        {showExportOptions && (
+                            <div className="absolute bottom-full mb-2 right-0 bg-gray-800 border border-gray-700 rounded-xl p-4 shadow-2xl z-50 w-64 text-right font-vazir">
+                                <h4 className="text-teal-400 font-bold mb-3 border-b border-gray-700 pb-2">انتخاب فایل‌های خروجی</h4>
+                                <div className="space-y-2 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
+                                    {[
+                                        { id: 'transcript', label: 'متن اصلی (TXT)' },
+                                        { id: 'chords', label: 'آکوردها (TXT)' },
+                                        { id: 'persian', label: 'ترجمه فارسی (TXT)' },
+                                        { id: 'english', label: 'ترجمه انگلیسی (TXT)' },
+                                        { id: 'finglish', label: 'فینگلیش (TXT)' },
+                                        { id: 'srt_original', label: 'زیرنویس اصلی (SRT)' },
+                                        { id: 'srt_english', label: 'زیرنویس انگلیسی (SRT)' },
+                                        { id: 'srt_finglish', label: 'زیرنویس فینگلیش (SRT)' },
+                                        { id: 'srt_persian', label: 'زیرنویس فارسی (SRT)' },
+                                        { id: 'timing', label: 'زمان‌بندی (JSON)' },
+                                        { id: 'master_json', label: 'پروژه کامل (JSON)' },
+                                        { id: 'powerpoint', label: 'پاورپوینت (PPSX)' },
+                                    ].map(opt => (
+                                        <label key={opt.id} className="flex items-center justify-between gap-3 cursor-pointer hover:bg-gray-700/50 p-2 rounded transition-colors">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={selectedExportFiles.includes(opt.id)}
+                                                onChange={() => {
+                                                    setSelectedExportFiles(prev => 
+                                                        prev.includes(opt.id) ? prev.filter(x => x !== opt.id) : [...prev, opt.id]
+                                                    );
+                                                }}
+                                                className="w-4 h-4 rounded border-gray-600 text-teal-500 focus:ring-teal-500 bg-gray-700"
+                                            />
+                                            <span className="text-xs text-gray-300">{opt.label}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                                <button 
+                                    onClick={() => { handleExportAllInOne(); setShowExportOptions(false); }}
+                                    className="w-full mt-4 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold py-2 rounded transition-all"
+                                >
+                                    شروع استخراج ZIP
+                                </button>
+                            </div>
+                        )}
+                    </div>
                     
                     {/* Translation Buttons */}
                      <div className="flex bg-gray-800 rounded-lg p-1 border border-gray-700 gap-1">
