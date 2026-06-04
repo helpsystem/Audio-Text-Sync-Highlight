@@ -147,7 +147,7 @@ export const Conversation: React.FC = () => {
 
             let promptText = "";
             if (selectedMode === 'song') {
-                promptText = "Transcribe this worship song. Group words into natural lyric lines/stanzas in the 'lines' array. Set type to 'lyric'. Do NOT merge stanzas into big blocks. CRITICAL: Provide highly accurate timestamps for every single word, down to the hundredth of a second (0.01s), for perfect karaoke-style synchronization.";
+                promptText = "Transcribe this worship song. Group words into natural lyric lines/stanzas in the 'lines' array. Set type to 'lyric'. Do NOT merge stanzas into big blocks. CRITICAL: Provide highly accurate timestamps for every single word. Priority on high-fidelity Persian transcription; strictly adhere to proper Persian grammar and spelling, including nuances like 'ی' vs the Ezafe 'ِ'.";
             } else {
                 promptText = `
 Transcribe this Bible reading or Speech.
@@ -158,6 +158,7 @@ Analyze the structure carefully:
 4. For general text, use type 'text'.
 Group words into these structural lines.
 CRITICAL: Provide highly accurate timestamps for every single word, down to the hundredth of a second (0.01s), to ensure perfect synchronization with the audio.
+Priority on high-fidelity Persian transcription; strictly adhere to proper Persian grammar and spelling, including nuances like 'ی' vs the Ezafe 'ِ'.
                 `;
             }
 
@@ -280,13 +281,13 @@ CRITICAL: Provide highly accurate timestamps for every single word, down to the 
             const linesContent = data.lines.map(l => l.content);
 
             if (target === 'persian') {
-                systemInstruction = "You are a professional translator. Translate each line of the provided array to fluent, formal Iranian Persian (Farsi). Maintain the exact number of lines and the order.";
+                systemInstruction = "You are a professional translator. Translate each line of the provided array to fluent, formal Iranian Persian (Farsi).\n\nCRITICAL: You MUST maintain the EXACT number of lines and the EXACT order. You MUST return exactly one translated line for each corresponding input line. Do not merge lines, do not split lines, do not omit lines.";
                 userPrompt = `Translate these lines:\n${JSON.stringify(linesContent)}`;
             } else if (target === 'english') {
-                systemInstruction = "You are a professional translator. Translate each line of the provided array to fluent English. Maintain the exact number of lines and the order.";
+                systemInstruction = "You are a professional translator. Translate each line of the provided array to fluent English.\n\nCRITICAL: You MUST maintain the EXACT number of lines and the EXACT order. You MUST return exactly one translated line for each corresponding input line. Do not merge lines, do not split lines, do not omit lines.";
                 userPrompt = `Translate these lines:\n${JSON.stringify(linesContent)}`;
             } else if (target === 'finglish') {
-                 systemInstruction = "You are a transliteration expert. Convert each line of the provided array to Finglish (Persian language using English alphabet). If input is English, translate to Persian first, then transliterate. Maintain the exact number of lines and the order.";
+                 systemInstruction = "You are a transliteration expert. Convert each line of the provided array to Finglish (Persian language using English alphabet).\n\nCRITICAL: You MUST maintain the EXACT number of lines and the EXACT order. You MUST return exactly one translated line for each corresponding input line. Do not merge lines, do not split lines, do not omit lines.";
                  userPrompt = `Convert these lines:\n${JSON.stringify(linesContent)}`;
             }
 
@@ -773,6 +774,44 @@ CRITICAL: Provide highly accurate timestamps for every single word, down to the 
         const a = document.createElement('a');
         a.href = url;
         a.download = `${file?.name.split('.')[0]}_transcript.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
+
+    const handleDownloadDeveloperJSON = () => {
+        if (!transcriptData || !file) return;
+        
+        const developerData = {
+            _documentation: {
+                description: "This file contains the full synchronized transcription, translation, and chord data for a project.",
+                structures: {
+                    TranscriptData: "Holds lines of content, where each line has a type (book_title, etc.), content string, and a words array containing timing info (word, start_time, end_time).",
+                    Translations: "Object mapping language keys (persian, english, finglish) to arrays of string lines corresponding to transcriptData.lines.",
+                    SyncSync: "Word-level timing information allows for precise word-by-word highlighting based on audio currentTime. Use effectiveTime = Math.max(0, currentTime - syncDelay) to handle synchronization offsets."
+                }
+            },
+            metadata: {
+                fileName: file.name,
+                mode: mode,
+                timestamp: new Date().toISOString(),
+                syncDelay,
+                highlightColors: {
+                    word: wordHighlightColor,
+                    line: lineHighlightColor
+                }
+            },
+            transcriptData,
+            translations,
+            chords
+        };
+        
+        const blob = new Blob([JSON.stringify(developerData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${file.name.split('.')[0]}_master_developer.json`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -1475,8 +1514,8 @@ Text: "${textToSpeak}"
                 <div className="mb-4 flex flex-wrap gap-2 justify-center items-center font-vazir text-sm">
                     <button onClick={resetState} className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition-colors">فایل جدید</button>
                     <button onClick={handleDownloadTranscript} className="bg-teal-600 hover:bg-teal-500 text-white font-bold py-2 px-4 rounded-lg transition-colors">دانلود متن (TXT)</button>
-                    <button onClick={handleDownloadProjectJSON} className="bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center gap-2">
-                        <Icon name="code" className="w-5 h-5" /> دانلود پروژه (JSON)
+                    <button onClick={handleDownloadDeveloperJSON} className="bg-cyan-700 hover:bg-cyan-600 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center gap-2">
+                        <Icon name="code" className="w-5 h-5" /> دانلود پروژه (JSON توسعه‌دهنده)
                     </button>
                     <button onClick={handleExportToPowerPoint} className="bg-orange-600 hover:bg-orange-500 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center gap-2">
                       <Icon name="presentation" className="w-5 h-5" /> خروجی پاورپوینت
@@ -1490,7 +1529,7 @@ Text: "${textToSpeak}"
                             <Icon name="download" className="w-5 h-5" /> استخراج همه (ZIP)
                         </button>
                         {showExportOptions && (
-                            <div className="absolute bottom-full mb-2 right-0 bg-gray-800 border border-gray-700 rounded-xl p-4 shadow-2xl z-50 w-64 text-right font-vazir">
+                            <div className="absolute top-full mt-2 right-0 bg-gray-800 border border-gray-700 rounded-xl p-4 shadow-2xl z-50 w-64 text-right font-vazir">
                                 <h4 className="text-teal-400 font-bold mb-3 border-b border-gray-700 pb-2">انتخاب فایل‌های خروجی</h4>
                                 <div className="space-y-2 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
                                     {[
