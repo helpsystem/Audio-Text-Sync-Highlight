@@ -530,6 +530,14 @@ Priority on high-fidelity Persian transcription; strictly adhere to proper Persi
             
             if (!zipFolder) throw new Error("Failed to create ZIP folder");
 
+            // Add Audio File
+            zipFolder.file(file.name, file);
+
+            // Add Source Link if exists
+            if (audioUrlInput) {
+                zipFolder.file("source_link.txt", audioUrlInput);
+            }
+
             const formatSRTTime = (seconds: number) => {
                 const hh = Math.floor(seconds / 3600).toString().padStart(2, '0');
                 const mm = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
@@ -730,6 +738,25 @@ Priority on high-fidelity Persian transcription; strictly adhere to proper Persi
                         bold: true,
                         shadow: { type: 'outer', color: '000000', blur: 2, offset: 1, angle: 45 }
                     });
+
+                    // Add Branding: URL, Logo, QR Code
+                    slide.addText("www.iranianchurchdc.com", {
+                        x: '80%', y: '90%', w: '20%', h: 0.3,
+                        align: 'center', fontSize: 10, color: 'FFFFFF'
+                    });
+                    
+                    // QR Code
+                    // PptxGenJS's addImage can take a URL
+                    slide.addImage({ 
+                        path: 'https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://www.iranianchurchdc.com/',
+                        x: '90%', y: '80%', w: 0.8, h: 0.8 
+                    });
+
+                    // Logo (Placeholder URL, user needs to update)
+                    slide.addImage({ 
+                        path: 'https://www.iranianchurchdc.com/favicon.ico',
+                        x: '5%', y: '80%', w: 0.8, h: 0.8 
+                    });
                     
                     setExportProgress(index + 1);
                 }
@@ -741,8 +768,8 @@ Priority on high-fidelity Persian transcription; strictly adhere to proper Persi
                 }
                 
                 // @ts-ignore
-                const pptxBlob = await pres.write('blob');
-                zipFolder.file(`${folderName}.ppsx`, pptxBlob);
+                const pptxArrayBuffer = await pres.write('arraybuffer');
+                zipFolder.file(`${folderName}.pptx`, pptxArrayBuffer);
             }
 
             // 7. Generate and Download ZIP
@@ -1038,7 +1065,7 @@ Priority on high-fidelity Persian transcription; strictly adhere to proper Persi
                   firstSlideReference.addText( 'POWERED BY GEMINI', { x: 0, y: '95%', w: '100%', h: 0.25, align: 'center', fontSize: 10, color: 'AAAAAA' } );
             }
             
-            await pres.writeFile({ fileName: `${file.name.split('.')[0]}_${mode}.ppsx` });
+            await pres.writeFile({ fileName: `${file.name.split('.')[0]}_${mode}.pptx` });
             setStatus('done');
         } catch (err) {
             console.error("PowerPoint Export Error:", err);
@@ -1496,6 +1523,11 @@ Text: "${textToSpeak}"
                 <div className="text-center p-12">
                     <div className="w-12 h-12 border-4 border-t-transparent border-teal-400 rounded-full animate-spin mx-auto"></div>
                     <p className="mt-4 text-lg text-gray-300 font-vazir">{STATUS_MESSAGES[status]}</p>
+                    {status === 'transcribing' && (
+                        <div className="mt-6 w-full max-w-sm mx-auto h-2 bg-gray-700 rounded-full overflow-hidden">
+                            <div className="h-full bg-teal-400 w-full animate-pulse"></div>
+                        </div>
+                    )}
                     {status === 'exporting' && totalSlides > 0 && (
                         <div className="mt-4 w-full max-w-xs mx-auto">
                             <div className="w-full bg-gray-700 rounded-full h-2.5"><div className="bg-teal-400 h-2.5 rounded-full transition-all duration-300" style={{ width: `${(exportProgress / totalSlides) * 100}%` }}></div></div>
