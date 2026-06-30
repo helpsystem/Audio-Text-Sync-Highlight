@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { GoogleGenAI, Type, Modality } from '@google/genai';
 import JSZip from 'jszip';
 import { Icon } from './Icon.tsx';
+import { toFinglish } from '../utils/finglish';
 
 type WordSegment = {
   word: string;
@@ -372,7 +373,7 @@ Priority on high-fidelity Persian transcription; strictly adhere to proper Persi
         setStatus('reading');
         
         try {
-            const response = await fetch(audioUrlInput);
+            const response = await fetch(`/api/fetch-audio?url=${encodeURIComponent(audioUrlInput)}`);
             if (!response.ok) throw new Error("Failed to fetch audio from URL.");
             
             const blob = await response.blob();
@@ -525,13 +526,14 @@ Priority on high-fidelity Persian transcription; strictly adhere to proper Persi
         
         try {
             const zip = new JSZip();
-            const folderName = file.name.split('.')[0];
+            const originalName = file.name.split('.')[0];
+            const folderName = toFinglish(originalName);
             const zipFolder = zip.folder(folderName);
             
             if (!zipFolder) throw new Error("Failed to create ZIP folder");
 
             // Add Audio File
-            zipFolder.file(file.name, file);
+            zipFolder.file(`${folderName}.mp3`, file);
 
             // Add Source Link if exists
             if (audioUrlInput) {
@@ -708,7 +710,10 @@ Priority on high-fidelity Persian transcription; strictly adhere to proper Persi
                         }
 
                         if (b64Image) {
-                            slide.addImage({ data: `data:image/jpeg;base64,${b64Image}`, w: '100%', h: '100%' });
+                            slide.addImage({ 
+                                data: `image/jpeg;base64,${b64Image}`, 
+                                x: 0, y: 0, w: '100%', h: '100%' 
+                            });
                         }
                     } catch (imgErr) {
                         slide.background = { color: '111827' };
@@ -745,25 +750,27 @@ Priority on high-fidelity Persian transcription; strictly adhere to proper Persi
                         align: 'center', fontSize: 10, color: 'FFFFFF'
                     });
                     
+                    // Logo (Placeholder URL, user needs to update)
+                    /*
+                    slide.addImage({ 
+                        path: 'https://www.iranianchurchdc.com/favicon.ico',
+                        x: '5%', y: '80%', w: 0.8, h: 0.8 
+                    });
+                    
                     // QR Code
                     // PptxGenJS's addImage can take a URL
                     slide.addImage({ 
                         path: 'https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://www.iranianchurchdc.com/',
                         x: '90%', y: '80%', w: 0.8, h: 0.8 
                     });
-
-                    // Logo (Placeholder URL, user needs to update)
-                    slide.addImage({ 
-                        path: 'https://www.iranianchurchdc.com/favicon.ico',
-                        x: '5%', y: '80%', w: 0.8, h: 0.8 
-                    });
+                    */
                     
                     setExportProgress(index + 1);
                 }
 
                 if (chunks.length > 0 && firstSlideReference) {
-                      const audioPart = await fileToGenerativePart(file);
-                      firstSlideReference.addMedia({ type: 'audio', data: `data:${file.type};base64,${audioPart.inlineData.data}`, x: 0.5, y: 0.5, w:1, h:1 });
+                      // const audioPart = await fileToGenerativePart(file);
+                      // firstSlideReference.addMedia({ type: 'audio', data: `data:${file.type};base64,${audioPart.inlineData.data}`, x: 0.5, y: 0.5, w:1, h:1 });
                       firstSlideReference.addText( 'POWERED BY GEMINI', { x: 0, y: '95%', w: '100%', h: 0.25, align: 'center', fontSize: 10, color: 'AAAAAA' } );
                 }
                 
@@ -1060,12 +1067,13 @@ Priority on high-fidelity Persian transcription; strictly adhere to proper Persi
             }
 
             if (chunks.length > 0 && firstSlideReference) {
-                  const audioPart = await fileToGenerativePart(file);
-                  firstSlideReference.addMedia({ type: 'audio', data: `data:${file.type};base64,${audioPart.inlineData.data}`, x: 0.5, y: 0.5, w:1, h:1 });
+                  // const audioPart = await fileToGenerativePart(file);
+                  // firstSlideReference.addMedia({ type: 'audio', data: `data:${file.type};base64,${audioPart.inlineData.data}`, x: 0.5, y: 0.5, w:1, h:1 });
                   firstSlideReference.addText( 'POWERED BY GEMINI', { x: 0, y: '95%', w: '100%', h: 0.25, align: 'center', fontSize: 10, color: 'AAAAAA' } );
             }
             
-            await pres.writeFile({ fileName: `${file.name.split('.')[0]}_${mode}.pptx` });
+            const folderName = toFinglish(file.name.split('.')[0]);
+            await pres.writeFile({ fileName: `${folderName}_${mode}.pptx` });
             setStatus('done');
         } catch (err) {
             console.error("PowerPoint Export Error:", err);
